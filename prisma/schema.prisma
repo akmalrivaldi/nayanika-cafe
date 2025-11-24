@@ -1,0 +1,101 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- ENUMS (Pilihan Tetap) ---
+enum Role {
+  USER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING     // Masuk keranjang/belum bayar
+  PAID        // Sudah bayar (masuk antrian admin)
+  COMPLETED   // Pesanan selesai/diantar
+  CANCELLED   // Dibatalkan
+}
+
+// --- MODELS (Tabel) ---
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  password      String    // Kita akan hash password ini nanti
+  image         String?
+  role          Role      @default(USER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relasi: Satu user bisa punya banyak order (History)
+  orders        Order[]
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique // Contoh: "Coffee", "Snack"
+  createdAt DateTime @default(now())
+  
+  // Relasi: Satu kategori punya banyak menu
+  menus     Menu[]
+}
+
+model Menu {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  price       Int      // Gunakan Integer (Rupiah), hindari Float untuk uang
+  image       String?  // URL gambar
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relasi ke Kategori
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+
+  // Relasi ke OrderItem (Menu ini ada di order mana saja)
+  orderItems  OrderItem[]
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  
+  // Info Pemesan
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  
+  // Info Transaksi
+  totalAmount Int
+  status      OrderStatus @default(PENDING)
+  
+  // Info Antrian (Race Condition Logic akan main disini)
+  queueNumber Int?        // Kosong saat PENDING, Terisi saat PAID
+  
+  // Waktu
+  createdAt   DateTime    @default(now()) // Untuk laporan perhari/perbulan
+  updatedAt   DateTime    @updatedAt
+
+  // Detail pesanan (menu apa saja yg dibeli)
+  items       OrderItem[]
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  menuId    String
+  menu      Menu    @relation(fields: [menuId], references: [id])
+  
+  quantity  Int
+  price     Int     // PENTING: Simpan harga saat beli. Jika harga menu naik besok, history tidak berubah.
+}
